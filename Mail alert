@@ -1,0 +1,99 @@
+Import-Module ActiveDirectory
+
+#System globalization
+#$ci = New-Object System.Globalization.CultureInfo("ru-RU")
+
+#SMTP server name
+$smtpServer = "test.mail.com"
+
+#UserName and Pass
+$Username = "robo@test.com"
+$Password = "yourpassword"
+$SecurePassword = $Password | ConvertTo-SecureString -AsPlainText -Force
+
+#Creating a Mail object
+$msg = new-object Net.Mail.MailMessage
+#Creating a Mail object for report
+$msgr = new-object Net.Mail.MailMessage
+
+#Creating SMTP server object
+$smtp = new-object Net.Mail.SmtpClient($smtpServer)
+$smtp.EnableSsl = $true
+$smtp.Credentials = New-Object System.Management.Automation.PSCredential -ArgumentList $Username, $SecurePassword
+
+
+
+#E-mail structure
+Function EmailStructure($to,$expiryDate,$upn)
+{
+	$msg.IsBodyHtml = $true
+	$msg.From = $Username
+	$msg.To.Clear()
+	$msg.To.Add($to)
+	$msg.Subject = "Mail Subject"
+	$msg.Body = "<html><body><font face='Arial'> ** Text here ** <br></font></body></html>"
+}
+
+Function EmailStructureReport($to)
+{
+	$msgr.IsBodyHtml = $true
+	$msgr.From = $Username
+	$msgr.To.Add($to)
+	$msgr.Subject = "Script running report"
+	$msgr.Body = "<html><body><font face='Arial'><b>This is a daily report.<br><br>Script has successfully completed its work. <br>$NotificationCounter users have recieved notifications:<br><br>$ListOfAccounts<br><br></b></font></body></html>"
+}
+
+#Set the target OU that will be searched for user accounts
+$OU = "OU=ou,DC=domain,DC=COM"
+
+$ADAccounts = Get-ADUser -LDAPFilter "(objectClass=user)" -searchbase $OU -properties PasswordExpired, mail, PasswordNeverExpires, PasswordLastSet, Mail, Enabled | Where-object {$_.Enabled -eq $true -and $_.PasswordNeverExpires -eq $false}
+$NotificationCounter = 0
+$ListOfAccounts = ""
+
+Foreach ($ADAccount in $ADAccounts)
+{
+ $accountFGPP = Get-ADUserResultantPasswordPolicy $ADAccount
+                if ($accountFGPP -ne $null)
+		{
+                 $maxPasswordAgeTimeSpan = $accountFGPP.MaxPasswordAge
+		}
+		else
+		{
+                 $maxPasswordAgeTimeSpan = (Get-ADDefaultDomainPasswordPolicy).MaxPasswordAge
+                }
+
+#Fill in the user variables
+	$samAccountName = $ADAccount.samAccountName
+	$userEmailAddress = $ADAccount.mail
+	$userPrincipalName = $ADAccount.UserPrincipalName
+
+	if ($ADAccount.PasswordExpired)
+	{
+	 Write-host "The password for account $samAccountName has expired!"
+	}
+	else
+	{
+	 $ExpiryDate = $ADAccount.PasswordLastSet + $maxPasswordAgeTimeSpan
+	 $TodaysDate = Get-Date
+	 $DaysToExpire = $ExpiryDate - $TodaysDate
+#Calculating DaysToExpireDD to DD format (w/o fractional part and dot)
+	 $DaysToExpireDD = $DaysToExpire.ToString() -Split ("\S{17}$")
+	 Write-host "The password for account $samAccountName expires on: $ExpiryDate. Days left: $DaysToExpireDD"
+		if (($DaysToExpire.Days -eq 12) -or ($DaysToExpire.Days -eq 7) -or ($DaysToExpire.Days -le 3))
+		{
+		 $expiryDate = $expiryDate.ToString("d",$ci)
+#Generate e-mail structure and send message
+			if ($userEmailAddress)
+			{
+	 		 EmailStructure $userEmailAddress $expiryDate $samAccountName
+	 		 $smtp.Send($msg)
+    			 Write-Host "NOTIFICATION - $samAccountName :: e-mail was sent to $userEmailAddress"
+   			 $NotificationCounter = $NotificationCounter + 1
+    			 $ListOfAccounts = $ListOfAccounts + $samAccountName + " - $DaysToExpireDD days  left. Sent to $userEmailAddress<br>"
+			}
+   		}
+	}
+}
+Write-Host "SENDING REPORT TO IT DEPARTMENT"
+EmailStructureReport("ituserh@domain.com")
+$smtp.Send($msgr) 
