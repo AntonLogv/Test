@@ -7,7 +7,7 @@ Import-Module ActiveDirectory
 $smtpServer = "test.mail.com"
 
 #UserName and Pass
-$Username = "robo@test.com"
+$Username = "your@mail.com"
 $Password = "yourpassword"
 $SecurePassword = $Password | ConvertTo-SecureString -AsPlainText -Force
 
@@ -95,5 +95,5 @@ Foreach ($ADAccount in $ADAccounts)
 	}
 }
 Write-Host "SENDING REPORT TO IT DEPARTMENT"
-EmailStructureReport("ituserh@domain.com")
+EmailStructureReport("ituser@domain.com")
 $smtp.Send($msgr) 
